@@ -7,7 +7,7 @@ use std::error::Error;
 use std::fmt;
 use std::io::{BufWriter, Read, Seek, Write};
 use zip::result::ZipError;
-use zip::write::FileOptions;
+use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 /// An error writing a `.npz` file.
@@ -77,7 +77,7 @@ impl From<WriteNpyError> for WriteNpzError {
 /// ```
 pub struct NpzWriter<W: Write + Seek> {
     zip: ZipWriter<W>,
-    options: FileOptions,
+    options: SimpleFileOptions,
 }
 
 impl<W: Write + Seek> NpzWriter<W> {
@@ -87,7 +87,7 @@ impl<W: Write + Seek> NpzWriter<W> {
     pub fn new(writer: W) -> NpzWriter<W> {
         NpzWriter {
             zip: ZipWriter::new(writer),
-            options: FileOptions::default().compression_method(CompressionMethod::Stored),
+            options: SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
         }
     }
 
@@ -98,7 +98,7 @@ impl<W: Write + Seek> NpzWriter<W> {
     pub fn new_compressed(writer: W) -> NpzWriter<W> {
         NpzWriter {
             zip: ZipWriter::new(writer),
-            options: FileOptions::default().compression_method(CompressionMethod::Deflated),
+            options: SimpleFileOptions::default().compression_method(CompressionMethod::Deflated),
         }
     }
 
@@ -114,7 +114,7 @@ impl<W: Write + Seek> NpzWriter<W> {
         S: Data,
         D: Dimension,
     {
-        self.zip.start_file(name, self.options)?;
+        self.zip.start_file(name.into(), self.options)?;
         // Buffering when writing individual arrays is beneficial even when the
         // underlying writer is `Cursor<Vec<u8>>` instead of a real file. The
         // only exception I saw in testing was the "compressed, in-memory
@@ -134,7 +134,7 @@ impl<W: Write + Seek> NpzWriter<W> {
     /// [`BufWriter`](std::io::BufWriter)) flush the writer, any errors that
     /// occur during drop will be silently ignored. So, it's necessary to call
     /// `.finish()` to properly handle errors.
-    pub fn finish(mut self) -> Result<W, WriteNpzError> {
+    pub fn finish(self) -> Result<W, WriteNpzError> {
         let mut writer = self.zip.finish()?;
         writer.flush().map_err(ZipError::from)?;
         Ok(writer)
@@ -219,7 +219,10 @@ impl<R: Read + Seek> NpzReader<R> {
     /// Returns the names of all of the arrays in the file.
     pub fn names(&mut self) -> Result<Vec<String>, ReadNpzError> {
         Ok((0..self.zip.len())
-            .map(|i| Ok(self.zip.by_index(i)?.name().to_owned()))
+            .map(|i| {
+                let file = self.zip.by_index(i)?;
+                Ok(file.name()?.into_owned())
+            })
             .collect::<Result<_, ZipError>>()?)
     }
 
